@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <WinSock2.h>
+#include <process.h>
 
 #define bzero(b,len) (memset((b), '\0', (len)), (void) 0)
 
@@ -16,7 +17,8 @@ struct sockaddr_in client;	//Struktur für den Client
 int sockaddrlen;			//Strukturlänge
 char buffer[1024];			//Puffer
 char *ptr;					//allgemeiner Pointer
-int childpid, n, a;
+HANDLE childpid;
+int n, a;
 int flag = 1;
 
 /* Main Funktion */
@@ -43,4 +45,105 @@ int main(array<System::String ^> ^args)
 	server.sin_family = AF_INET;
 	server.sin_port = htons(int::Parse(args[1]));
 	server.sin_addr.s_addr = htonl(INADDR_ANY);
+
+	/*Erzeugung eines TCP-Sockets*/
+	sockfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+	if (sockfd < 0)
+	{
+		perror("Fehler beim Erzeugen des Sockets\n");
+		exit(1);
+	}
+
+	/*Socket wurde ordnungsgemäß erzeugt*/
+	printf("Socket Nummer %d wurde erzeugt.\n", sockfd);
+
+	/*die Werte für den Server an den Socket binden*/
+	if (bind(sockfd, (struct sockaddr *) & server, sizeof(server)) == -1)
+	{
+		perror("Beim Binden ist ein Fehler aufgetreten!\n");
+		closesocket(sockfd);
+		exit(1);
+	}
+
+	/* Es wird eine Queue für maximal 5 Verbindungsanforderungen eingerichtet */
+	listen(sockfd, 5);
+	
+	/* Es werden nun die Werte in die Struktur für den Client gestellt, die vorher
+	*  auf null gelöscht wird
+	*/
+
+	bzero((char *)&client, sizeof(client));
+	client.sin_family = AF_INET;
+	client.sin_port = htons(0);
+	client.sin_addr.s_addr = htonl(INADDR_ANY);
+	sockaddrlen = sizeof(client);
+
+	/* Es werden Verbindungsanforderungen von Clients erwartet */
+	printf("\nServer ist bereit");
+	while (flag) //Parentprozess kann nur durch Kommando beendet werden
+	{
+		printf("\nParent-Prozess %d wartet auf Clientanfrage\n", _getpid());
+		newsockfd = accept(sockfd, (struct sockaddr *) &client, &sockaddrlen);
+		if (newsockfd < 0)
+		{
+			perror("\nFehler beim Empfangen.");
+			closesocket(sockfd);
+			closesocket(newsockfd);
+			exit(1);
+		}
+
+		/* Verbindungsanforderung vom Client fehlerfrei empfangen */
+		printf("\nNeuer Socket Nummer %d wurde erzeugt.", newsockfd);
+		printf("\nAnforderung kam vom Rechner: %s", inet_ntoa(client.sin_addr));
+
+		/* Es wird ein Child-Prozess erzeugt, der die Anforderung behandelt */
+		childpid = fork(args[0]->ToString);
+		if (childpid <= 0)
+		{
+			closesocket(sockfd);
+			closesocket(newsockfd);
+			exit(1);
+		}
+
+		/* Aufteilung in Child und Parent-Prozess */
+		closesocket(sockfd);
+		printf("\nProzess %d behandelt Anforderung von REchner %s", childpid, inet_ntoa(client.sin_addr));
+		do
+		{
+			ptr = *(&buffer);
+			n = sizeof(buffer);
+		} while (strncmp("Ende", buffer, 4));
+
+	}
+}
+
+handle_t fork(System::String cmdLine)
+{
+	STARTUPINFO si;
+	PROCESS_INFORMATION pi;
+
+	ZeroMemory(&si, sizeof(si));
+	si.cb = sizeof(si);
+	ZeroMemory(&pi, sizeof(pi));
+
+	// Start the child process. 
+	if (!CreateProcess(
+			NULL,   // No module name (use command line)
+			cmdLine.ToCharArray,        // Command line
+			NULL,           // Process handle not inheritable
+			NULL,           // Thread handle not inheritable
+			FALSE,          // Set handle inheritance to FALSE
+			0,              // No creation flags
+			NULL,           // Use parent's environment block
+			NULL,           // Use parent's starting directory 
+			&si,            // Pointer to STARTUPINFO structure
+			&pi
+			)           // Pointer to PROCESS_INFORMATION structure
+		)
+	{
+		printf("CreateProcess failed (%d).\n", GetLastError());
+		return(0);
+	}
+	else
+		return (pi.hProcess);
 }
