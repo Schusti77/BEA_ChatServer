@@ -9,7 +9,7 @@
 #include <process.h>
 //#include <netinet/in.h>
 
-#pragma once
+#pragma comment (lib, "ws2_32.lib")
 //#include <msclr\marshal.h>
 //#include <vcclr.h>
 
@@ -22,7 +22,7 @@
 
 
 /*Definitionen*/
-int sockfd, newsockfd;	//Socket-Filedeskriptoren
+SOCKET sockfd, newsockfd;	//Socket-Filedeskriptoren
 struct sockaddr_in server;	//Struktur für den Server
 struct sockaddr_in client;	//Struktur für den Client
 int sockaddrlen;			//Strukturlänge
@@ -87,6 +87,7 @@ int main(int argc, TCHAR *argv[])
 	server.sin_family = AF_INET;
 	server.sin_port = htons(_wtoi(argv[1]));
 	server.sin_addr.s_addr = htonl(INADDR_ANY);
+	WSADATA wsaData;
 
 	/*Erzeugung eines TCP-Sockets*/
 	sockfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -97,12 +98,16 @@ int main(int argc, TCHAR *argv[])
 	}
 
 	/*Socket wurde ordnungsgemäß erzeugt*/
-	printf("Socket Nummer %d wurde erzeugt.\n", sockfd);
+	printf("Socket wurde erzeugt.\n");
+
+	int iResult = WSAStartup(MAKEWORD(2, 2), &wsaData);
 
 	/*die Werte für den Server an den Socket binden*/
-	if (bind(sockfd, (struct sockaddr *) & server, sizeof(server)) == -1)
+	if (bind(sockfd, (struct sockaddr *) &server, sizeof(server)) ==-1)
 	{
-		perror("Beim Binden ist ein Fehler aufgetreten!\n");
+		perror("beim Binden ist ein Fehler aufgetreten!");
+		printf("Beim Binden ist ein Fehler aufgetreten! Fehlernummer:%d\n", WSAGetLastError());
+		WSACleanup();
 		closesocket(sockfd);
 		exit(1);
 	}
@@ -135,7 +140,7 @@ int main(int argc, TCHAR *argv[])
 		}
 
 		/* Verbindungsanforderung vom Client fehlerfrei empfangen */
-		printf("\nNeuer Socket Nummer %d wurde erzeugt.", newsockfd);
+		printf("\nNeuer Socket wurde erzeugt.");
 		printf("\nAnforderung kam vom Rechner: %s", inet_ntoa(client.sin_addr));
 
 		/* Es wird ein Child-Prozess erzeugt, der die Anforderung behandelt */
@@ -149,7 +154,7 @@ int main(int argc, TCHAR *argv[])
 
 		/* Aufteilung in Child und Parent-Prozess */
 		closesocket(sockfd);
-		printf("\nProzess %d behandelt Anforderung von REchner %s", childpid, inet_ntoa(client.sin_addr));
+		printf("\nProzess %p behandelt Anforderung von REchner %s", childpid, inet_ntoa(client.sin_addr));
 		do
 		{
 			ptr = *(&buffer);
@@ -211,7 +216,7 @@ int main(int argc, TCHAR *argv[])
 			}
 			printf("\nDatenaustausch mit Rechner %s wurde beendet.", inet_ntoa(client.sin_addr));
 			/*der Childprozess hat seine Arbeit getan*/
-			printf("\n Child-Prozess %d beendet sich.", childpid);
+			printf("\n Child-Prozess %p beendet sich.", childpid);
 			closesocket(newsockfd);
 			exit(0);
 		}
