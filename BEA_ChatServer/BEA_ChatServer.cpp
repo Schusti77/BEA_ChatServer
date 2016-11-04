@@ -1,14 +1,25 @@
 // BEA_ChatServer.cpp: Hauptprojektdatei.
 
 #include "stdafx.h"
+#include <windows.h>
 #include <stdio.h>
+#include <tchar.h>
 #include <sys/types.h>
-#include <WinSock2.h>
+//#include <WinSock2.h>
 #include <process.h>
+//#include <netinet/in.h>
+
+#pragma once
+//#include <msclr\marshal.h>
+//#include <vcclr.h>
 
 #define bzero(b,len) (memset((b), '\0', (len)), (void) 0)
 
-using namespace System;
+//using namespace System;
+//using namespace msclr::interop;
+//using namespace System::Runtime::InteropServices;
+//using namespace msclr::interop;
+
 
 /*Definitionen*/
 int sockfd, newsockfd;	//Socket-Filedeskriptoren
@@ -21,6 +32,37 @@ HANDLE childpid;
 int n, a;
 int flag = 1;
 
+HANDLE fork(TCHAR *cmdline)
+{
+	STARTUPINFO si;
+	PROCESS_INFORMATION pi;
+
+	ZeroMemory(&si, sizeof(si));
+	si.cb = sizeof(si);
+	ZeroMemory(&pi, sizeof(pi));
+
+	// Start the child process. 
+	if (!CreateProcess(
+		NULL,   // No module name (use command line)
+		cmdline,        // Command line
+		NULL,           // Process handle not inheritable
+		NULL,           // Thread handle not inheritable
+		FALSE,          // Set handle inheritance to FALSE
+		0,              // No creation flags
+		NULL,           // Use parent's environment block
+		NULL,           // Use parent's starting directory 
+		&si,            // Pointer to STARTUPINFO structure
+		&pi
+	)           // Pointer to PROCESS_INFORMATION structure
+		)
+	{
+		printf("CreateProcess failed (%d).\n", GetLastError());
+		return(0);
+	}
+	else
+		return (pi.hProcess);
+}
+
 /* Main Funktion */
 //int main(array<System::String ^> ^args)
 //{
@@ -32,9 +74,9 @@ int flag = 1;
 //	Console::ReadKey();
 //	return 0;
 //}
-int main(array<System::String ^> ^args)
+int main(int argc, TCHAR *argv[])
 {
-	if( args->Length < 2 )
+	if( argc < 2 )
 	{
 		perror("\nAufruf mit Portnummer des Servers");
 		exit(1);
@@ -43,7 +85,7 @@ int main(array<System::String ^> ^args)
 	//Struktur für den Server initialisiern
 	bzero((char *)& server, sizeof(server));
 	server.sin_family = AF_INET;
-	server.sin_port = htons(int::Parse(args[1]));
+	server.sin_port = htons(_wtoi(argv[1]));
 	server.sin_addr.s_addr = htonl(INADDR_ANY);
 
 	/*Erzeugung eines TCP-Sockets*/
@@ -97,7 +139,7 @@ int main(array<System::String ^> ^args)
 		printf("\nAnforderung kam vom Rechner: %s", inet_ntoa(client.sin_addr));
 
 		/* Es wird ein Child-Prozess erzeugt, der die Anforderung behandelt */
-		childpid = fork(args[0]->ToString);
+		childpid = fork(argv[0]);
 		if (childpid <= 0)
 		{
 			closesocket(sockfd);
@@ -112,38 +154,68 @@ int main(array<System::String ^> ^args)
 		{
 			ptr = *(&buffer);
 			n = sizeof(buffer);
+			while (n > 0)
+			{
+				a = recv(newsockfd, ptr, n, 0);
+				if (a < 0)
+				{
+					perror("\nDaten-Anforderung nicht fehlerfrei.");
+					closesocket(newsockfd);
+					exit(1);
+				}
+				else
+				{
+					if (a == 0)
+						break;
+					n -= a;
+					ptr += a;
+				}
+			}
+
+			/* Datenanforderung wurde empfangen und steht im Buffer */
+			printf("\nEs wurde empfangen: %s", buffer);
+
+			/*erstmal nur echoserver*/
+			/*Daten solange zurücksenden, bis "Ende" erkannt wurde*/
+			printf("\n Daten-Erwiderung erfolgt an Rechner %s", inet_ntoa(client.sin_addr));
+			/*Datenanforderung wird zurückgesandt*/
+			ptr = *(&buffer);
+			n = sizeof(buffer);
+			while (n > 0) //schleife bis alle Daten geschrieben
+			{
+				a = send(newsockfd, ptr, n, 0);
+				if (a < 0)
+				{
+					perror("\nDaten-Erwiderung nicht fehlerfrei.");
+					closesocket(newsockfd);
+					exit(1);
+				}
+				else
+				{
+					n -= a;
+					ptr += a;
+				}
+			}
+			printf("\nDatenerwiderung an Client gesendet.");
 		} while (strncmp("Ende", buffer, 4));
-
+		while (strncmp("Ende", buffer, 4) != 0)
+		{
+			//Ende wurde gesendet, wird nun noch zurückgesandt
+			ptr = *(&buffer);
+			n = sizeof(buffer);
+			while (n > 0)
+			{
+				send(newsockfd, ptr, n, 0);
+				n -= a;
+				ptr += a;
+			}
+			printf("\nDatenaustausch mit Rechner %s wurde beendet.", inet_ntoa(client.sin_addr));
+			/*der Childprozess hat seine Arbeit getan*/
+			printf("\n Child-Prozess %d beendet sich.", childpid);
+			closesocket(newsockfd);
+			exit(0);
+		}
+		/*wir sind wieder im parent process*/
+		closesocket(newsockfd);
 	}
-}
-
-handle_t fork(System::String cmdLine)
-{
-	STARTUPINFO si;
-	PROCESS_INFORMATION pi;
-
-	ZeroMemory(&si, sizeof(si));
-	si.cb = sizeof(si);
-	ZeroMemory(&pi, sizeof(pi));
-
-	// Start the child process. 
-	if (!CreateProcess(
-			NULL,   // No module name (use command line)
-			cmdLine.ToCharArray,        // Command line
-			NULL,           // Process handle not inheritable
-			NULL,           // Thread handle not inheritable
-			FALSE,          // Set handle inheritance to FALSE
-			0,              // No creation flags
-			NULL,           // Use parent's environment block
-			NULL,           // Use parent's starting directory 
-			&si,            // Pointer to STARTUPINFO structure
-			&pi
-			)           // Pointer to PROCESS_INFORMATION structure
-		)
-	{
-		printf("CreateProcess failed (%d).\n", GetLastError());
-		return(0);
-	}
-	else
-		return (pi.hProcess);
 }
